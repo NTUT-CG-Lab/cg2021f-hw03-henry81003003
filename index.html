@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<title>three.js webgl - loaders - MMD loader</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<link type="text/css" rel="stylesheet" href="main.css">
+	<style>
+		body {
+			background-color: #fff;
+			color: #444;
+		}
+
+		a {
+			color: #08f;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="info"></div>
+
+	<script src="js/libs/ammo.wasm.js"></script>
+	<script src="scoreoutputer.min.js"></script>
+	
+	<script>
+		// 建構子 ScoreOutputer 接受一個字串，該字串為 csv 的檔案名稱
+		// 以下面範例，檔名就為 "109598018(總分: 6).csv"
+		var so = new ScoreOutputer("109598018");
+		so.installCSS(function () {
+			// 安裝 bootstrap 的 css，如果在 html 上方引用 bootstrap 5.1.1 的話就不用使用 installCSS ，注意一定要 bootstrap css 5.1.1 版
+			// installCSS 接收一個 callback 當作參數，作為成功安裝 bootstrap css 的回呼函式
+
+			//加入項目，分數，完成狀況
+			//第一個參數為 項目名稱
+			//第2個參數為 項目分數
+			//第3個參數為 完成狀況，有完成 true/未完成 false
+			//有幾個項目就呼叫幾個 addChild
+			//addChild 要比 renderModal 先呼叫
+			so.addChild("繪製出 5 個畫面", 1, true);
+			so.addChild("回答問題", 1, false);
+			so.addChild("可按鍵選擇上 / 下一隻角色", 1, false);
+			so.addChild("讀取作業 2 儲存的座標點在眼睛上繪製出分割線", 1, false);
+			so.addChild("可選擇當下控制哪個虹膜", 1, false);
+			so.addChild("按滑鼠左鍵控制虹膜移動，右鍵停止", 2, false);
+			so.addChild("複製參數至對應目標參數", 2, false);
+			so.addChild("可儲存虹膜轉動角度", 1, false);
+
+			//產生自評表，參數如下所示
+			so.renderModal(
+				//1. 自評表插入位置 (預設 document.body)
+				document.body,
+				//2. 自評表背景 (預設紅色)
+				'rgba(100,45,58,1)',
+				//3. 自評表文字顏色 (預設白色)
+				'white',
+				//4. 自評表文字大小 (預設 14pt)
+				'15pt',
+				//5. 自評表 checkbox 文字大小 (預設多少忘了)
+				'15px',
+				//6. 自評表標題 (預設 "自我評分表")
+				dialogTitle = "自我評分表"
+			);
+
+			//設定下載按鈕 <-- 一定要呼叫這個函數，不然沒有下載功能
+			so.installDownloadBtn();
+
+			//產生 "開啟自評表按鈕"
+			so.renderBtn(
+				//自評表按鈕插入位置
+				document.querySelector("#info"),
+				//自評表按鈕文字
+				"開啟自評表"
+			);
+		});
+	</script>
+	<script type="module">
+
+		import * as THREE from './build/three.module.js';
+		import { GUI } from './jsm/libs/dat.gui.module.js';
+		import { OrbitControls } from './jsm/controls/OrbitControls.js';
+		import { OutlineEffect } from './jsm/effects/OutlineEffect.js';
+		import { MMDLoader } from './jsm/loaders/MMDLoader.js';
+		import { MMDAnimationHelper } from './jsm/animation/MMDAnimationHelper.js';
+		// import * as SkeletonUtils from './jsm/utils/SkeletonUtils.js';
+
+		let scene;
+		let renderer, effect;
+		let mesh, mesh2, mesh3, mesh4, mesh5;
+		let helper;
+		let SCREEN_WIDTH = window.innerWidth;
+		let SCREEN_HEIGHT = window.innerHeight;
+		let aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
+		let frustumSize = 6;
+		let frustumSize_cam01 = 0.6;
+		let camera, camera2, camera3, camera4, camera5;
+		// index 0 for x-axis, index 1 for y-axis
+		var L_top_left = [], L_top_right = [], L_bottom_right = [], L_bottom_left = [];
+		var R_top_left = [], R_top_right = [], R_bottom_right = [], R_bottom_left = [];
+		var line_container = [null, null, null, null, null, null, null, null, null, null, null, null, null, null];
+		var y_bias = [-10, -10, -10];
+		var y_camera_height = [8.6, 5, 6];
+		var x_camera_pos = [0.5, 0.55, 0.54];
+		var y_camera_pos = [8.25, 4.55, 5.48];
+		let json_content;
+
+		// iris controller
+		var eye_index = [[86, 88],[11, 13], [49, 51]];
+		var iris_rotation_x, iris_rotation_y;
+		var Right_X_negative_angle, Left_X_negative_angle;
+		var Right_X_positive_angle, Left_X_positive_angle;
+		var Right_Y_negative_angle, Left_Y_negative_angle;
+		var Right_Y_positive_angle, Left_Y_positive_angle;
+		var mousePosition = new THREE.Vector2();
+		var eye_selection = 0;
+		var rotation_angle_X = [[-10.4, 8.6], [-17, 15], [-13, 17.5]];
+		var rotation_angle_Y = [[-13, 7.6], [-21, 10], [-16.5, 11.5]];
+		var left_eye_rotation = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]];
+		var right_eye_rotation = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]];
+		var camera_num = 0;
+		var param_num = 0;
+
+		// MMD Loader Initializer
+		var MMD_id = 0;
+		const modelFile = ['models/mmd/kizunaai/kizunaai.pmx', 
+						   'models/mmd/るいのれ式物述有栖_配布用フォルダ/物述有栖.pmx',
+						   'models/mmd/『天宮こころ(Kokoro Amamiya)』/『天宮こころ(Kokoro Amamiya)』.pmx'];
+		helper = new MMDAnimationHelper();
+		const loader = new MMDLoader();
+
+		Ammo().then(function (AmmoLib) {
+
+			Ammo = AmmoLib;
+
+			init();
+			animate();
+
+		});
+
+		function init() {
+
+			const container = document.createElement('div');
+			document.body.appendChild(container);
+			camera = new THREE.OrthographicCamera(0.5 * frustumSize_cam01 * aspect / - 2, 0.5 * frustumSize_cam01 * aspect / 2, frustumSize_cam01 / 2, frustumSize_cam01 / - 2, 0.1, 1000);
+			camera2 = new THREE.OrthographicCamera(0.25 * frustumSize * aspect / - 2, 0.25 * frustumSize * aspect / 2, 0.5 * frustumSize / 2, 0.5 * frustumSize / - 2, 0.1, 1000);
+			camera3 = new THREE.OrthographicCamera(0.25 * frustumSize * aspect / - 2, 0.25 * frustumSize * aspect / 2, 0.5 * frustumSize / 2, 0.5 * frustumSize / - 2, 0.1, 1000);
+			camera4 = new THREE.OrthographicCamera(0.25 * frustumSize * aspect / - 2, 0.25 * frustumSize * aspect / 2, 0.5 * frustumSize / 2, 0.5 * frustumSize / - 2, 0.1, 1000);
+			camera5 = new THREE.OrthographicCamera(0.25 * frustumSize * aspect / - 2, 0.25 * frustumSize * aspect / 2, 0.5 * frustumSize / 2, 0.5 * frustumSize / - 2, 0.1, 1000);
+			camera.position.x = x_camera_pos[0];
+			camera.position.y = y_camera_pos[0];
+			camera2.position.y = y_camera_height[0];
+			camera3.position.y = y_camera_height[0];
+			camera4.position.y = y_camera_height[0];
+			camera5.position.y = y_camera_height[0];
+			camera.position.z = 30;
+			camera2.position.z = 30;
+			camera3.position.z = 30;
+			camera4.position.z = 30;
+			camera5.position.z = 30;
+
+			initControls();
+			
+			// scene
+			scene = new THREE.Scene();
+			const ambient = new THREE.AmbientLight(0x666666);
+			scene.add(ambient);
+
+			const directionalLight = new THREE.DirectionalLight(0x887766);
+			directionalLight.position.set(- 1, 1, 1).normalize();
+			scene.add(directionalLight);
+
+			// renderer
+			renderer = new THREE.WebGLRenderer({ antialias: true });
+			renderer.setPixelRatio(window.devicePixelRatio);
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			container.appendChild(renderer.domElement);
+			renderer.autoClear = false;
+			effect = new OutlineEffect(renderer);
+
+			loader.load(modelFile[0], function (object) {
+
+				mesh = object;
+				mesh.position.y = y_bias[0];
+				mesh.skeleton.bones[eye_index[0][0]].rotation.x = iris_rotation_x;
+				mesh.skeleton.bones[eye_index[0][0]].rotation.y = iris_rotation_y;
+				mesh.skeleton.bones[eye_index[0][1]].rotation.x = iris_rotation_x;
+				mesh.skeleton.bones[eye_index[0][1]].rotation.y = iris_rotation_y;
+				scene.add(mesh);
+
+				console.log(mesh.getBones);
+
+			}, onProgress, null);
+
+			get_EyePosition("./eyePos_json/Model01.json");
+
+			// Website event listeners
+			window.addEventListener('click', onPointerDown, false);
+			window.addEventListener('resize', onWindowResize);
+			window.addEventListener('keydown', key_press, false);
+		}
+
+		function onWindowResize() {
+
+			SCREEN_WIDTH = window.innerWidth;
+			SCREEN_HEIGHT = window.innerHeight;
+			aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
+
+			effect.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+
+			camera.left = 0.5 * frustumSize_cam01 * aspect / - 2;
+			camera.right = 0.5 * frustumSize_cam01 * aspect / 2;
+			camera.top = frustumSize_cam01 / 2;
+			camera.bottom = - frustumSize_cam01 / 2;
+			camera.updateProjectionMatrix();
+
+			camera2.left = 0.25 * frustumSize * aspect / - 2;
+			camera2.right = 0.25 * frustumSize * aspect / 2;
+			camera2.top = 0.5 * frustumSize / 2;
+			camera2.bottom = - 0.5 * frustumSize / 2;
+			camera2.updateProjectionMatrix();
+
+			camera3.left = 0.25 * frustumSize * aspect / - 2;
+			camera3.right = 0.25 * frustumSize * aspect / 2;
+			camera3.top = 0.5 * frustumSize / 2;
+			camera3.bottom = - 0.5 * frustumSize / 2;
+			camera3.updateProjectionMatrix();
+
+			camera4.left = 0.25 * frustumSize * aspect / - 2;
+			camera4.right = 0.25 * frustumSize * aspect / 2;
+			camera4.top = 0.5 * frustumSize / 2;
+			camera4.bottom = - 0.5 * frustumSize / 2;
+			camera4.updateProjectionMatrix();
+
+			camera5.left = 0.25 * frustumSize * aspect / - 2;
+			camera5.right = 0.25 * frustumSize * aspect / 2;
+			camera5.top = 0.5 * frustumSize / 2;
+			camera5.bottom = - 0.5 * frustumSize / 2;
+			camera5.updateProjectionMatrix();
+		}
+
+		function read_JSON(file) {
+			var jsonFile = new XMLHttpRequest();
+			jsonFile.open("GET", file, false);
+			jsonFile.onreadystatechange = function ()
+			{
+				if(jsonFile.readyState === 4)
+				{
+					if(jsonFile.status === 200 || jsonFile.status == 0)
+					{
+						var allText = jsonFile.responseText;
+						json_content = allText;
+					}
+				}
+			}
+			jsonFile.send(null);
+		}
+		
+		function get_EyePosition(filename) {
+			read_JSON(filename);
+			var data = JSON.parse(json_content);
+
+			L_top_left[0] = data["eye_infos"]["left_eye_info"]["top-left"][0];
+			L_top_left[1] = data["eye_infos"]["left_eye_info"]["top-left"][1];
+			L_top_right[0] = data["eye_infos"]["left_eye_info"]["top-right"][0];
+			L_top_right[1] = data["eye_infos"]["left_eye_info"]["top-right"][1];
+			L_bottom_right[0] = data["eye_infos"]["left_eye_info"]["bottom-right"][0];
+			L_bottom_right[1] = data["eye_infos"]["left_eye_info"]["bottom-right"][1];
+			L_bottom_left[0] = data["eye_infos"]["left_eye_info"]["bottom-left"][0];
+			L_bottom_left[1] = data["eye_infos"]["left_eye_info"]["bottom-left"][1];
+
+			R_top_left[0] = data["eye_infos"]["right_eye_info"]["top-left"][0];
+			R_top_left[1] = data["eye_infos"]["right_eye_info"]["top-left"][1];
+			R_top_right[0] = data["eye_infos"]["right_eye_info"]["top-right"][0];
+			R_top_right[1] = data["eye_infos"]["right_eye_info"]["top-right"][1];
+			R_bottom_right[0] = data["eye_infos"]["right_eye_info"]["bottom-right"][0];
+			R_bottom_right[1] = data["eye_infos"]["right_eye_info"]["bottom-right"][1];
+			R_bottom_left[0] = data["eye_infos"]["right_eye_info"]["bottom-left"][0];
+			R_bottom_left[1] = data["eye_infos"]["right_eye_info"]["bottom-left"][1];
+		}
+
+		function key_press( event ) {
+			var filename;
+			switch( event.which ){
+				// press a --> previous
+				case 65:
+					Boundary_remover();
+					MMD_id = (MMD_id + modelFile.length - 1) % modelFile.length;
+					camera.position.x = x_camera_pos[MMD_id];
+					camera.position.y = y_camera_pos[MMD_id];
+					camera2.position.y = y_camera_height[MMD_id];
+					camera3.position.y = y_camera_height[MMD_id];
+					camera4.position.y = y_camera_height[MMD_id];
+					camera5.position.y = y_camera_height[MMD_id];
+					filename = "./eyePos_json/Model0" + String(MMD_id + 1) + ".json";
+					read_MMD(MMD_id);
+					get_EyePosition(filename);
+					break;
+					
+				// press d --> next
+				case 68:
+					Boundary_remover();
+					MMD_id = (MMD_id + 1) % modelFile.length;
+					camera.position.x = x_camera_pos[MMD_id];
+					camera.position.y = y_camera_pos[MMD_id];
+					camera2.position.y = y_camera_height[MMD_id];
+					camera3.position.y = y_camera_height[MMD_id];
+					camera4.position.y = y_camera_height[MMD_id];
+					camera5.position.y = y_camera_height[MMD_id];
+					filename = "./eyePos_json/Model0" + String(MMD_id + 1) + ".json";
+					read_MMD(MMD_id);
+					get_EyePosition(filename);
+					break;
+				
+				// press 1 --> previous parameter
+				case 49:
+					eye_selection = (eye_selection - 1 + 8) % 8;
+					break;
+
+				// press 2 --> next parameter
+				case 50:
+					eye_selection = (eye_selection + 1) % 8;
+					break;
+
+				// press q --> duplicate
+				case 81:
+					switch (eye_selection) {
+						case 0:
+							Left_X_negative_angle = Right_X_negative_angle;
+							break;
+						case 1:
+							Right_X_negative_angle = Left_X_negative_angle;
+							break;
+						case 2:
+							Left_X_positive_angle = Right_X_positive_angle;
+							break;
+						case 3:
+							Right_X_positive_angle = Left_X_positive_angle;
+							break;
+						case 4:
+							Left_Y_negative_angle = Right_Y_negative_angle - (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
+							break;
+						case 5:
+							Right_Y_negative_angle = Left_Y_negative_angle + (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
+							break;
+						case 6:
+							Left_Y_positive_angle = Right_Y_positive_angle - (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
+							break;
+						case 7:
+							Right_Y_positive_angle = Left_Y_positive_angle + (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
+							break;
+					}
+					break;
+				
+				// press s --> save JSON
+				case 83:
+					var eye_infos = {
+						"Right X negative angle" : Right_X_negative_angle * 180 / Math.PI,
+						"Left X negative angle" : Left_X_negative_angle * 180 / Math.PI,
+						"Right X positive angle" : Right_X_positive_angle * 180 / Math.PI,
+						"Left X positive angle" : Left_X_positive_angle * 180 / Math.PI,
+						"Right Y negative angle" : Right_Y_negative_angle * 180 / Math.PI,
+						"Left Y negative angle" : Left_Y_negative_angle * 180 / Math.PI,
+						"Right Y positive angle" : Right_Y_positive_angle * 180 / Math.PI,
+						"Left Y positive angle" : Left_Y_positive_angle * 180 / Math.PI
+					}
+					var data = JSON.stringify({eye_infos}, null, 4);
+					JSON_downloader(data, "application/octet-stream", "Model0" + String(MMD_id + 1) + ".json");
+					break;
+			}
+		}
+
+		function JSON_downloader(data, type, name) {
+			var blob = new Blob([data], {type});
+			var url = URL.createObjectURL(blob);
+			downloadURI(url, name);
+			URL.revokeObjectURL(url);
+		}
+
+		function downloadURI(url, name) {
+			var link = document.createElement("a");
+			link.href = url;
+			link.download = name;
+			link.click();
+		}
+
+		function Left_Boundary_drawer() {
+			var num = 0;
+			// horizontal
+			let line, gap, line_length = 0.2;
+			let h_last_line, v_last_line;
+			for (var i=0;i<4;i++) {
+				gap = (L_top_left[1] + (L_bottom_left[1] - L_top_left[1])*(i * 0.25) );
+				line = Line_drawer(L_bottom_left[0] - line_length, gap, L_bottom_right[0] + line_length, gap, 0x00ff00);
+				line_container[num] = line;
+				num += 1;
+				scene.add(line);
+			}
+			
+			h_last_line = Line_drawer(L_bottom_left[0] - line_length, L_bottom_left[1], L_bottom_right[0] + line_length, L_bottom_right[1], 0x00ff00);
+			line_container[num] = h_last_line;
+			num += 1;
+			scene.add(h_last_line);
+
+			// vertical
+			for (var i=0;i<8;i++) {
+				gap = L_top_left[0] + (L_top_right[0] - L_top_left[0])*(i * 0.125);
+				line = Line_drawer(gap, (L_top_right[1] + line_length), gap, (L_bottom_right[1] - line_length), 0xff0000);
+				line_container[num] = line;
+				num += 1;
+				scene.add(line);
+			}
+			
+			v_last_line = Line_drawer(L_top_right[0], (L_top_right[1] + line_length), L_top_right[0], (L_bottom_right[1] - line_length), 0xff0000);
+			line_container[num] = v_last_line;
+			num += 1;
+			scene.add(v_last_line);
+		}
+
+		function Right_Boundary_drawer() {
+			var num = 0;
+			// horizontal
+			let line, gap, line_length = 0.2;
+			let h_last_line, v_last_line;
+			for (var i=0;i<4;i++) {
+				gap = (R_top_left[1] + (R_bottom_left[1] - R_top_left[1])*(i * 0.25) );
+				line = Line_drawer(R_bottom_left[0] + line_length, gap, R_bottom_right[0] - line_length, gap, 0x00ff00);
+				line_container[num] = line;
+				num += 1;
+				scene.add(line);
+			}
+			
+			h_last_line = Line_drawer(R_bottom_left[0] + line_length, R_bottom_left[1], R_bottom_right[0] - line_length, R_bottom_right[1], 0x00ff00);
+			line_container[num] = h_last_line;
+			num += 1;
+			scene.add(h_last_line);
+
+			// vertical
+			for (var i=0;i<8;i++) {
+				gap = R_top_left[0] + (R_top_right[0] - R_top_left[0])*(i * 0.125);
+				line = Line_drawer(gap, (R_top_right[1] + line_length), gap, (R_bottom_right[1] - line_length), 0xff0000);
+				line_container[num] = line;
+				num += 1;
+				scene.add(line);
+			}
+			
+			v_last_line = Line_drawer(R_top_right[0], (R_top_right[1] + line_length), R_top_right[0], (R_bottom_right[1] - line_length), 0xff0000);
+			line_container[num] = v_last_line;
+			num += 1;
+			scene.add(v_last_line);
+		}
+
+		function Boundary_remover() {
+			for (var i=0;i<line_container.length; i++) {
+				scene.remove(line_container[i]);
+			}
+		}
+
+		function Line_drawer( L_posX, L_posY, R_posX, R_posY, line_color ) {
+
+			let material = new THREE.LineBasicMaterial( { color: line_color } );
+			let points = [];
+
+			points.push( new THREE.Vector3( L_posX , L_posY, 2.5 ) );
+			points.push( new THREE.Vector3( R_posX , R_posY, 2.5 ) );
+
+			let geometry = new THREE.BufferGeometry().setFromPoints( points );
+
+			let line = new THREE.Line(geometry, material);
+
+			return line;
+		}
+
+		// MMD reader
+		function read_MMD( MMD_id ) {
+			scene.remove(mesh);
+			
+			loader.load(modelFile[MMD_id], function (object) {
+				mesh = object;
+				mesh.position.y = y_bias[MMD_id];
+				mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = iris_rotation_x;
+				mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = iris_rotation_y;
+				mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = iris_rotation_x;
+				mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = iris_rotation_y;
+				scene.add(mesh);
+			}, onProgress, null);
+		}
+
+		// Morph controller
+		function initControls() {
+			iris_rotation_x = 0.0;
+			iris_rotation_y = 0.0;
+			Right_X_negative_angle = 0.1;
+			Left_X_negative_angle = 0.1;
+			Right_X_positive_angle = -0.1;
+			Left_X_positive_angle = -0.1;
+			Right_Y_negative_angle = 0.1;
+			Left_Y_negative_angle = 0.1;
+			Right_Y_positive_angle = -0.1;
+			Left_Y_positive_angle = -0.1;
+		}
+
+		// model
+		function onProgress(xhr) {
+			if (xhr.lengthComputable) {
+				const percentComplete = xhr.loaded / xhr.total * 100;
+				console.log(Math.round(percentComplete, 2) + '% downloaded');
+			}
+		}
+
+		function camera_choice(x, y) {
+			
+			if (0 <= x && x <= SCREEN_WIDTH / 2 && 0 <= y && y <=  SCREEN_HEIGHT) {
+				camera_num = 1;
+			}
+
+			else if (SCREEN_WIDTH / 2 <= x && x <= 3 * SCREEN_WIDTH / 4 && 0 <= y && y <= SCREEN_HEIGHT / 2) {
+				camera_num = 2;
+			}
+
+			else if (3 * SCREEN_WIDTH / 4 <= x && x <= SCREEN_WIDTH && 0 <= y && y <= SCREEN_HEIGHT / 2) {
+				camera_num = 3;
+			}
+
+			else if (SCREEN_WIDTH / 2 <= x && x <= 3 * SCREEN_WIDTH / 4 && SCREEN_HEIGHT / 2 <= y && y <= SCREEN_HEIGHT) {
+				camera_num = 4;
+			}
+
+			else if (3 * SCREEN_WIDTH / 4 <= x && x <= SCREEN_WIDTH && SCREEN_HEIGHT / 2 <= y && y <= SCREEN_HEIGHT) {
+				camera_num = 5;
+			}
+
+			return camera_num;
+		}
+		
+		function iris_moving_X( mousePos ) {
+			var mouse = new THREE.Vector2();
+			mouse.x = mousePos.x;
+			mouse.y = mousePos.y;
+
+			var angle_range = rotation_angle_X[MMD_id][1] - rotation_angle_X[MMD_id][0];
+			var angle_mid = rotation_angle_X[MMD_id][1] + rotation_angle_X[MMD_id][0];
+			var degree = - mouse.y * (angle_range / 2) + (angle_mid / 2);
+
+			if (degree < rotation_angle_X[MMD_id][0]) {
+				iris_rotation_x = rotation_angle_X[MMD_id][0] * Math.PI / 180;
+			}
+			else if (degree > rotation_angle_X[MMD_id][1]) {
+				iris_rotation_x = rotation_angle_X[MMD_id][1] * Math.PI / 180;
+			}
+			else {
+				iris_rotation_x = degree * Math.PI / 180;
+			}
+
+			switch (eye_selection) {
+				case 0:
+					Right_X_negative_angle = iris_rotation_x;
+					break;
+				case 1:
+					Left_X_negative_angle = iris_rotation_x;
+					break;
+				case 2:
+					Right_X_positive_angle = iris_rotation_x;
+					break;
+				case 3:
+					Left_X_positive_angle = iris_rotation_x;
+					break;
+			}
+			// console.log(degree);
+		}
+
+		function iris_moving_Y( mousePos ) {
+			var mouse = new THREE.Vector2();
+			mouse.x = mousePos.x;
+			mouse.y = mousePos.y;
+
+			var angle_range = Math.abs(rotation_angle_Y[MMD_id][1] - rotation_angle_Y[MMD_id][0]);
+			var angle_mid = rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0];
+			var degree;
+			var MouseX = (mouse.x + 0.5) * 2;
+			if (MouseX >= 1) {
+				MouseX = 1;
+			}
+			else if (MouseX <= -1){
+				MouseX = -1;
+			}
+
+			switch (eye_selection) {
+				case 4:
+					degree = MouseX * (angle_range / 2) + (angle_mid / 2);
+
+					if (degree < rotation_angle_Y[MMD_id][0]) {
+						iris_rotation_y = rotation_angle_Y[MMD_id][0] * Math.PI / 180;
+					}
+					else if (degree > rotation_angle_Y[MMD_id][1]) {
+						iris_rotation_y = rotation_angle_Y[MMD_id][1] * Math.PI / 180;
+					}
+					else {
+						iris_rotation_y = degree * Math.PI / 180;
+					}
+					Right_Y_negative_angle = iris_rotation_y;
+					break;
+				case 5:
+					degree = MouseX * (angle_range / 2) - (angle_mid / 2);
+
+					if (degree < -rotation_angle_Y[MMD_id][1]) {
+						iris_rotation_y = -rotation_angle_Y[MMD_id][1] * Math.PI / 180;
+					}
+					else if (degree > -rotation_angle_Y[MMD_id][0]) {
+						iris_rotation_y = -rotation_angle_Y[MMD_id][0] * Math.PI / 180;
+					}
+					else {
+						iris_rotation_y = degree * Math.PI / 180;
+					}
+					Left_Y_negative_angle = iris_rotation_y;
+					break;
+				case 6:
+					degree = MouseX * (angle_range / 2) + (angle_mid / 2);
+
+					if (degree < rotation_angle_Y[MMD_id][0]) {
+						iris_rotation_y = rotation_angle_Y[MMD_id][0] * Math.PI / 180;
+					}
+					else if (degree > rotation_angle_Y[MMD_id][1]) {
+						iris_rotation_y = rotation_angle_Y[MMD_id][1] * Math.PI / 180;
+					}
+					else {
+						iris_rotation_y = degree * Math.PI / 180;
+					}
+					Right_Y_positive_angle = iris_rotation_y;
+					break;
+				case 7:
+					degree = MouseX * (angle_range / 2) - (angle_mid / 2);
+
+					if (degree < -rotation_angle_Y[MMD_id][1]) {
+						iris_rotation_y = -rotation_angle_Y[MMD_id][1] * Math.PI / 180;
+					}
+					else if (degree > -rotation_angle_Y[MMD_id][0]) {
+						iris_rotation_y = -rotation_angle_Y[MMD_id][0] * Math.PI / 180;
+					}
+					else {
+						iris_rotation_y = degree * Math.PI / 180;
+					}
+					Left_Y_positive_angle = iris_rotation_y;
+					break;
+			}
+			// console.log(degree);
+		}
+
+		function get_eye_choice(eyeNum){
+			// update eye left or right
+			if(eyeNum % 2 === 0){
+				camera.position.x = -x_camera_pos[MMD_id];
+				camera.position.y = y_camera_pos[MMD_id];
+			}
+			else{
+				camera.position.x = x_camera_pos[MMD_id];
+				camera.position.y = y_camera_pos[MMD_id];
+			}
+			
+
+			switch (eyeNum) {
+				case 0:
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = Right_X_negative_angle;
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = 0;
+					break;
+				case 1:
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = Left_X_negative_angle;
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = 0;
+					break;
+				case 2:
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = Right_X_positive_angle;
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = 0;
+					break;
+				case 3:
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = Left_X_positive_angle;
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = 0;
+					break;
+				case 4:
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = 0;
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = Right_Y_negative_angle;
+					break;		
+				case 5:
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = 0;
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = Left_Y_negative_angle;
+					break;
+				case 6:
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = 0;
+					mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = Right_Y_positive_angle;
+					break;
+				case 7:
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = 0;
+					mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = Left_Y_positive_angle;
+					break;
+			}
+		}
+
+
+		var now_moving = 2;
+		function onMouseLeftClick( event ) {
+			event.preventDefault();
+
+			var camera_num = camera_choice(event.clientX, event.clientY);
+
+			if (event.button === 0) {
+				if (camera_num === 1) {
+					document.addEventListener( 'mousemove', mouseMove_pos );
+				}
+				else if (camera_num === 2) {
+					now_moving = 2;
+					console.log("Camera 2");
+				}
+				else if (camera_num === 3) {
+					now_moving = 3;
+					console.log("Camera 3");
+				}
+				else if (camera_num === 4) {
+					now_moving = 4;
+					console.log("Camera 4");
+				}
+				else if (camera_num === 5) {
+					now_moving = 5;
+					console.log("Camera 5");
+				}
+			}
+		}
+
+		function onMouseRightClick( event ) {
+			event.preventDefault();
+
+			if (event.button === 2) {
+				console.log("Right click");
+				onPointerUp();
+			}
+
+		}
+
+		function onPointerDown( event ) {
+			event.preventDefault();
+
+			document.addEventListener( 'click', onMouseLeftClick );
+			document.addEventListener( 'contextmenu', onMouseRightClick );
+			document.addEventListener( 'pointerup', onPointerUp );
+		}
+
+		function onPointerUp() {
+
+			document.removeEventListener( 'mousemove', mouseMove_pos );
+			document.removeEventListener( 'pointerup', onPointerUp );
+
+		}
+
+		function mouseMove_pos ( event ) {
+			event.preventDefault();
+
+			mousePosition.x = (event.clientX / window.innerWidth) * 2 - 1;
+			mousePosition.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+			iris_moving_X(mousePosition);
+			iris_moving_Y(mousePosition);
+		}
+		
+		function animate() {
+
+			requestAnimationFrame(animate);
+			effect.clear();
+			render_cam01();
+			render_cam02();
+			render_cam03();
+			render_cam04();
+			render_cam05();
+
+		}
+
+		function render_cam01() {
+			get_eye_choice(eye_selection);
+			if (eye_selection % 2 === 0) {
+				Right_Boundary_drawer();
+			}
+			else {
+				Left_Boundary_drawer();
+			}
+			effect.setViewport(0, 0, SCREEN_WIDTH / 2, SCREEN_HEIGHT);
+			effect.render(scene, camera);
+			Boundary_remover();
+		}
+
+		function render_cam02() {
+			effect.setViewport(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2);
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = Left_X_negative_angle; // left X
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = Right_X_negative_angle; // right X
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = 0.0;
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = 0.0;
+
+			if (eye_selection === 0) {
+				Right_Boundary_drawer();
+			}
+			if (eye_selection === 1) {
+				Left_Boundary_drawer();
+			}
+			effect.render(scene, camera2);
+			if(eye_selection === 0 | eye_selection === 1){
+				Boundary_remover();
+			}
+		}
+
+		function render_cam03() {
+			effect.setViewport(SCREEN_WIDTH / 2 + SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2);
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = Left_X_positive_angle; // left X
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = Right_X_positive_angle; // right X
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = 0.0;
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = 0.0;
+			if(eye_selection === 2){
+				Right_Boundary_drawer();
+			}
+			if(eye_selection === 3){
+				Left_Boundary_drawer();
+			}
+			effect.render(scene, camera3);
+			if(eye_selection === 2 | eye_selection === 3){
+				Boundary_remover();
+			}
+		}
+
+		function render_cam04() {
+			effect.setViewport(SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2);
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = 0;
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = 0;
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = Left_Y_negative_angle;
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = Right_Y_negative_angle;
+			if(eye_selection === 4){
+				Right_Boundary_drawer();
+			}
+			if(eye_selection === 5){
+				Left_Boundary_drawer();
+			}
+			effect.render(scene, camera4);
+			if(eye_selection === 4 | eye_selection === 5){
+				Boundary_remover();
+			}
+		}
+
+		function render_cam05() {
+			effect.setViewport(SCREEN_WIDTH / 2 + SCREEN_WIDTH / 4, 0, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2);
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.x = 0;
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.x = 0;
+			mesh.skeleton.bones[eye_index[MMD_id][0]].rotation.y = Left_Y_positive_angle;
+			mesh.skeleton.bones[eye_index[MMD_id][1]].rotation.y = Right_Y_positive_angle;
+			if(eye_selection === 6){
+				Right_Boundary_drawer();
+			}
+			if(eye_selection === 7){
+				Left_Boundary_drawer();
+			}
+			effect.render(scene, camera5);
+			if(eye_selection === 6 | eye_selection === 7){
+				Boundary_remover();
+			}
+		}
+
+	</script>
+
+</body>
+
+</html>
