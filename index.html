@@ -326,27 +326,35 @@
 				case 81:
 					switch (eye_selection) {
 						case 0:
+							eye_selection = 1;
 							Left_X_negative_angle = Right_X_negative_angle;
 							break;
 						case 1:
+							eye_selection = 0;
 							Right_X_negative_angle = Left_X_negative_angle;
 							break;
 						case 2:
+							eye_selection = 3;
 							Left_X_positive_angle = Right_X_positive_angle;
 							break;
 						case 3:
+							eye_selection = 2;
 							Right_X_positive_angle = Left_X_positive_angle;
 							break;
 						case 4:
+							eye_selection = 5;
 							Left_Y_negative_angle = Right_Y_negative_angle - (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
 							break;
 						case 5:
+							eye_selection = 4;
 							Right_Y_negative_angle = Left_Y_negative_angle + (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
 							break;
 						case 6:
+							eye_selection = 7;
 							Left_Y_positive_angle = Right_Y_positive_angle - (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
 							break;
 						case 7:
+							eye_selection = 6;
 							Right_Y_positive_angle = Left_Y_positive_angle + (rotation_angle_Y[MMD_id][1] + rotation_angle_Y[MMD_id][0]) * Math.PI / 180;
 							break;
 					}
